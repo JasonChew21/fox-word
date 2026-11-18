@@ -59,6 +59,7 @@
   let vh = H;
   let dpr = 1;
   let actorScale = motion.FOX_SCALE;
+  let paintedAnimated = false;
 
   function groundAt(x) {
     let i = 0;
@@ -98,7 +99,8 @@
   }
 
   function seedScene(seed) {
-    world = motion.createWorld(seed, { planted: paintingStudy });
+    world = motion.createWorld(seed, { planted: paintingStudy, stroll: paintedAnimated });
+    if (world.stroll) world.stroll.scale = actorScale;
     waterRandom = motion.randomFrom(world.seed ^ 0x52639a);
     rings = [];
     nextRing = 1.2 + waterRandom() * 4;
@@ -143,6 +145,7 @@
     vh = height / scale;
     top = (H - vh) * .88;
     actorScale = Math.min(motion.FOX_SCALE, vw / 324);
+    if (world?.stroll) world.stroll.scale = actorScale;
     trackCamera(0);
     if (ready) render();
   }
@@ -183,11 +186,12 @@
     ctx.clip(lake);
     ctx.lineCap = 'round';
     const source = plate.naturalHeight / H;
-    ctx.globalAlpha = .43 + weather.gust * .10;
+    ctx.globalAlpha = .43 + weather.gust * (world.stroll ? .19 : .10);
     for (let y = 445; y < 805; y += 13) {
       const depth = (y - 425) / 380;
       const swell = Math.sin(y * .061 + time * .57) + .58 * Math.sin(y * .11 - time * .26);
-      const dx = swell * (.74 + Math.abs(weather.wind) * 1.9 + depth * 2.1);
+      const wind = Math.abs(weather.wind) * 1.9 + (world.stroll ? weather.gust * .67 : 0);
+      const dx = swell * (.74 + wind + depth * 2.1);
       ctx.drawImage(plate, 0, y * source, plate.naturalWidth, 13 * source, dx - 4, y, W + 8, 13);
     }
     for (const g of glints) {
@@ -232,7 +236,8 @@
     ctx.lineCap = 'round';
     for (const reed of reeds) {
       const { x, y, height: h, phase } = reed;
-      const air = weather.wind * .64 + Math.sin(time * (0.86 + phase * .06) + phase) * (.21 + weather.gust * .19);
+      const strength = world.stroll ? .77 : .64;
+      const air = weather.wind * strength + Math.sin(time * (0.86 + phase * .06) + phase) * (.21 + weather.gust * .19);
       const bend = reed.lean + air * h * .41;
       const [tx, ty] = reedPath(x, y, h, bend, 1);
       ctx.strokeStyle = '#3e3d3a';
@@ -373,9 +378,9 @@
   plate.addEventListener('load', async () => {
     if (paintingStudy) {
       try {
-        const animated = await art.prepare();
-        canvas.setAttribute('aria-label', animated
-          ? '江岸上的水墨狐狸。点一下狐狸，它会侧耳、抬头和提爪。'
+        paintedAnimated = await art.prepare();
+        canvas.setAttribute('aria-label', paintedAnimated
+          ? '水墨狐狸在江岸上散步，随风侧耳抬头。点一下狐狸，它会提爪。'
           : '江岸上的水墨狐狸插画。当前浏览器仅显示狐狸的定姿。');
       } catch {
         message.textContent = '狐狸插画没有加载，请将网页和 assets 文件夹放在一起后再打开。';

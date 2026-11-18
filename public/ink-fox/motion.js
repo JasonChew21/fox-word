@@ -7,6 +7,7 @@
   const STRIDE = 57;
   const ACCELERATION = 142;
   const PI = Math.PI;
+  const STEP_TIMES = [[.075, .302], [.444, .671], [.282, .523], [.654, .899]];
   const clamp = (value, min = 0, max = 1) => Math.max(min, Math.min(max, value));
   const lerp = (a, b, t) => a + (b - a) * t;
   const ease = t => {
@@ -29,12 +30,12 @@
     return lerp(from, to, random());
   }
 
-  function createWorld(seed = Math.floor(Math.random() * 4294967296), { planted = false } = {}) {
+  function createWorld(seed = Math.floor(Math.random() * 4294967296), { planted = false, stroll = false } = {}) {
     const random = randomFrom(seed >>> 0);
     const climate = randomFrom((seed ^ 0xA78E13D5) >>> 0);
     const ambient = { wind: range(climate, -.19, .46), mist: range(climate, .26, .68), light: range(climate, .33, .64) };
     const world = {
-      seed, random, climate, planted, time: 0,
+      seed, random, climate, planted: planted || stroll, time: 0,
       weather: { ...ambient, gust: 0, drift: range(climate, -180, 180) },
       weatherFrom: ambient, weatherTo: null, weatherStart: 0, weatherLength: 1,
       gustAt: range(climate, 4, 9), gustLength: range(climate, 3.2, 5.5), gustDirection: climate() < .28 ? -1 : 1,
@@ -47,7 +48,14 @@
         blink: 0, tail: 0, paw: 0, turnWidth: 1, destination: 800, cruise: 62
       }
     };
-    if (planted) world.fox.facing = 1;
+    if (world.planted) world.fox.facing = 1;
+    if (stroll) {
+      world.stroll = { nextAt: range(random, 2.9, 5.6), scale: FOX_SCALE, travel: null, interest: .60, wind: ambient.wind };
+      world.actionLength = world.stroll.nextAt + .1;
+      world.gustAt += 5;
+      world.fox.feet = STEP_TIMES.map(() => ({ x: 0, lift: 0 }));
+      world.fox.bob = world.fox.pitch = 0;
+    }
     nextWeather(world, ambient);
     return world;
   }
@@ -77,6 +85,7 @@
       world.gustAt = world.time + range(world.climate, 4.6, 13);
       world.gustLength = range(world.climate, 3.2, 5.5);
       world.gustDirection = world.climate() < .33 ? -1 : 1;
+      if (world.stroll) world.stroll.interest = range(world.climate, .10, 1);
     }
     const wave = Math.sin(PI * clamp((world.time - world.gustAt) / world.gustLength));
     weather.gust = wave * wave;
@@ -118,6 +127,51 @@
     startWalk(world, travel);
   }
 
+  function startStroll(world) {
+    const stride = world.stroll;
+    const room = MAX_X - world.fox.x;
+    if (room < 28 * stride.scale) {
+      stride.nextAt = Infinity;
+      return false;
+    }
+    const distance = Math.min(room, range(world.random, 33, 41) * stride.scale);
+    stride.travel = { x: world.fox.x, distance, scale: stride.scale };
+    enter(world, 'stroll', range(world.random, 2.8, 3.65));
+    return true;
+  }
+
+  function stepStroll(world, delta) {
+    const fox = world.fox;
+    const stride = world.stroll;
+    const { x, distance, scale } = stride.travel;
+    const progress = clamp(world.actionAge / world.actionLength);
+    const travel = distance * ease(progress);
+    fox.speed = (x + travel - fox.x) / delta;
+    fox.x = x + travel;
+    for (let i = 0; i < STEP_TIMES.length; i++) {
+      const [from, to] = STEP_TIMES[i];
+      const swing = clamp((progress - from) / (to - from));
+      const foot = fox.feet[i];
+      foot.x = distance * ease(swing) - travel;
+      foot.lift = swing > 0 && swing < 1 ? Math.sin(PI * swing) ** 1.36 * scale * (i < 2 ? 7.9 : 9.4) : 0;
+    }
+    const weight = Math.sin(PI * progress);
+    fox.bob = -weight * scale * (1.22 + .87 * Math.sin(PI * progress * 8 - .4));
+    fox.pitch = Math.sin(PI * progress * 4) * weight * .012;
+    if (progress < 1) return;
+
+    fox.bob = fox.pitch = fox.speed = 0;
+    stride.travel = null;
+    stride.nextAt = world.time + range(world.random, 17, 35);
+    if (world.weather.gust < .10) {
+      world.gustAt = world.time + range(world.random, .70, 1.12);
+      world.gustLength = range(world.random, 3.7, 4.7);
+      stride.interest = range(world.random, .81, 1);
+    }
+    if (world.attention && world.attention.expires > world.time) stop(world);
+    else enter(world, 'listen', range(world.random, 5.7, 7.1));
+  }
+
   function stop(world) {
     const fox = world.fox;
     fox.speed = 0;
@@ -143,6 +197,12 @@
   function stepAction(world, delta) {
     const fox = world.fox;
     world.actionAge += delta;
+    if (world.state === 'stroll') {
+      stepStroll(world, delta);
+      return;
+    }
+    if (world.stroll && world.state === 'listen' && world.time >= world.stroll.nextAt && fox.paw < .015
+      && startStroll(world)) return;
     if (world.state === 'walk') {
       const remaining = Math.abs(fox.destination - fox.x);
       const target = Math.min(fox.cruise, Math.sqrt(2 * ACCELERATION * remaining));
@@ -177,6 +237,11 @@
     }
   }
 
+  function windGesture(world, delay, rise, hold, fall) {
+    const elapsed = world.time - world.gustAt - delay;
+    return ease(elapsed / rise) * ease((rise + hold + fall - elapsed) / fall);
+  }
+
   function advance(world, delta) {
     delta = Number.isFinite(delta) ? clamp(delta, 0, .05) : 0;
     if (delta === 0) return world;
@@ -192,23 +257,30 @@
     const looking = world.state === 'look';
     const alert = world.planted && looking;
     const look = alert ? ease((age - .13) / .60) * ease(remaining / .79) : envelope;
-    fox.look = damp(fox.look, looking ? look : .62 * turn, 11, delta);
+    const listening = world.state === 'listen';
+    const attentionToWind = world.stroll?.interest ?? 0;
+    const windLook = listening && attentionToWind > .45
+      ? windGesture(world, .89, .76, .24, .96) * attentionToWind * .76 : 0;
+    fox.look = damp(fox.look, looking ? look : Math.max(.62 * turn, windLook), 11, delta);
     fox.sniff = damp(fox.sniff, world.state === 'sniff' ? envelope : 0, 10, delta);
     fox.pace = damp(fox.pace, clamp(fox.speed / Math.max(fox.cruise * .82, 1)), 11, delta);
     const paw = alert ? ease((age - .33) / .72) * ease(remaining / .84) : 0;
     fox.paw = damp(fox.paw, paw, 9.2, delta);
 
-    const listening = world.state === 'listen';
     const stillEar = .42 * Math.exp(-(((age - .62) / .18) ** 2));
     const idleEar = listening ? (world.planted ? stillEar : Math.sin(age * 4.8) ** 6 * envelope) : 0;
     const perk = alert ? .91 * Math.exp(-(((age - .18) / .15) ** 2)) : 0;
     const gustElapsed = world.time - world.gustAt - .49;
-    const windEar = Math.sin(PI * clamp(gustElapsed / .56)) ** 2;
+    const windEar = world.stroll
+      ? windGesture(world, .36, .31, .075, .43) * (.58 + .42 * attentionToWind)
+      : Math.sin(PI * clamp(gustElapsed / .56)) ** 2;
     fox.ear = damp(fox.ear, clamp(idleEar * .75 + perk + windEar * .80 + fox.look * .31), 18, delta);
     const tailBase = Math.sin(world.time * 1.56 + world.seed % 45) * .37;
+    if (world.stroll) world.stroll.wind = damp(world.stroll.wind, world.weather.wind, 1.7, delta);
+    const air = world.stroll?.wind ?? world.weather.wind;
     const tail = world.planted
       ? .23 * Math.sin(world.time * 1.28 + world.seed % 45) + .10 * Math.sin(world.time * .49 + world.seed % 21)
-        + world.weather.wind * .59 + fox.look * .22 - fox.sniff * .11
+        + air * .59 + fox.look * .22 - fox.sniff * .11 - fox.pace * .42
       : tailBase + world.weather.wind * .40 - fox.pace * .30 + fox.look * .26;
     fox.tail = damp(fox.tail, tail, 3.3, delta);
 
@@ -226,6 +298,7 @@
       return;
     }
     world.attention = { x: at, expires: world.time + 4.2 };
+    if (world.state === 'stroll') return;
     if (world.state === 'walk') {
       const stoppingDistance = Math.max(12, fox.speed * fox.speed / (2 * ACCELERATION));
       const left = Math.abs(fox.destination - fox.x);
