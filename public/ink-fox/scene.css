@@ -1,0 +1,101 @@
+:root {
+  color-scheme: light;
+  --paper: #ece9e3;
+  --ink: #312e2b;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body { margin: 0; overflow: hidden; }
+
+.scene {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  isolation: isolate;
+  overflow: hidden;
+  background: var(--paper) url("assets/river.webp") center / cover no-repeat;
+}
+
+canvas {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: manipulation;
+}
+
+canvas[data-ready="false"] { opacity: 0; }
+
+.controls {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  gap: 7px;
+  right: max(21px, env(safe-area-inset-right));
+  bottom: max(20px, env(safe-area-inset-bottom));
+}
+
+.controls button {
+  display: grid;
+  place-items: center;
+  width: 43px;
+  height: 43px;
+  border: 1px solid rgba(58, 51, 46, .3);
+  border-radius: 50%;
+  background: rgba(239, 236, 230, .80);
+  color: var(--ink);
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background .18s ease, border-color .18s ease;
+}
+
+.controls button:hover { background: #f4f1eb; border-color: #6c6660; }
+.controls button:focus-visible { outline: 2px solid #332f2c; outline-offset: 3px; }
+.controls button:disabled { opacity: .46; cursor: default; }
+.controls button[hidden] { display: none; }
+#music[aria-pressed="true"] { background: #f4f1eb; border-color: #8c7066; color: #745347; }
+
+.controls svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.45;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#pause[aria-pressed="false"] .play-icon,
+#pause[aria-pressed="true"] .pause-icon,
+#music[aria-pressed="true"] .music-off { display: none; }
+
+.message {
+  position: absolute;
+  margin: 0;
+  left: 50%;
+  bottom: 18%;
+  transform: translateX(-50%);
+  padding: 11px 17px;
+  border-radius: 4px;
+  width: max-content;
+  max-width: calc(100% - 36px);
+  color: var(--ink);
+  background: rgba(248, 246, 241, .88);
+  font-size: .875rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 600px) {
+  .controls { right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); }
+  .controls button { width: 42px; height: 42px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .controls button { transition: none; }
+}

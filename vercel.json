@@ -1,6 +1,8 @@
 {
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/ink-fox", "destination": "/ink-fox/index.html" },
+    { "source": "/ink-fox/", "destination": "/ink-fox/index.html" },
     { "source": "/(.*)",     "destination": "/" }
   ]
 }
